@@ -1,0 +1,12 @@
+# Virtual environment
+.venv/
+
+# Local tool clone
+vic2png/
+
+# Large archives
+*.zip
+
+# Large datasets and generated outputs
+datasets/maria_pass/
+datasets/maria_pass_filtered/
