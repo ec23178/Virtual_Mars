@@ -4,9 +4,9 @@
 # Local tool clone
 vic2png/
 
-# Large archives
+# Ignore zip archives anywhere
 *.zip
 
-# Large datasets and generated outputs
-datasets/maria_pass/
-datasets/maria_pass_filtered/
+# Ignore heavy raw data only in maria_pass
+datasets/maria_pass/data/
+datasets/maria_pass/IMG_files/
