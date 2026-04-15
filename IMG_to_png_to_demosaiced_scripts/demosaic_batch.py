@@ -68,7 +68,8 @@ def demosaic_malvar(img_array):
 
     return rgb
 
-
+""" 
+# This used for LEGACY DATA SET 
 def process_image(image_path, output_dir, method):
     # Get the filename without extension so the output keeps the same stem.
     stem = os.path.splitext(os.path.basename(image_path))[0]
@@ -93,6 +94,45 @@ def process_image(image_path, output_dir, method):
     Image.fromarray(out).save(output_path)
 
     print(f"Saved: {output_path} | shape={out.shape}")
+""" 
+# This is used for maria pass data
+def process_image(image_path, output_dir, method):
+    # Get the filename without extension so the output keeps the same stem.
+    stem = os.path.splitext(os.path.basename(image_path))[0]
+
+    # Open the PNG exactly as it is.
+    pil_img = Image.open(image_path)
+    img = np.array(pil_img)
+
+    # If the image is already colour, keep it unchanged.
+    # This prevents a true RGB image being converted back to grayscale
+    # and then wrongly treated as Bayer data.
+    if img.ndim == 3 and img.shape[2] == 3:
+        out = img
+        output_path = os.path.join(output_dir, f"{stem}.png")
+        Image.fromarray(out).save(output_path)
+        print(f"Copied colour image unchanged: {output_path} | shape={out.shape}")
+        return
+
+    # If the image is single-channel, treat it as Bayer input.
+    if img.ndim == 2:
+        if method == "bilinear":
+            out = demosaic_bilinear(img)
+        elif method == "malvar":
+            out = demosaic_malvar(img)
+        else:
+            raise ValueError(f"Unknown method: {method}")
+
+        output_path = os.path.join(output_dir, f"{stem}.png")
+        Image.fromarray(out).save(output_path)
+        print(f"Demosaiced: {output_path} | shape={out.shape}")
+        return
+
+    # Reject anything unexpected so the pipeline stays clear.
+    raise ValueError(
+        f"Unsupported image shape for {image_path}: {img.shape}"
+    )
+
 
 
 def main():
@@ -103,7 +143,7 @@ def main():
     parser.add_argument(
         "--input-dir",
         required=True,
-        help="Folder containing raw grayscale Bayer PNG images."
+        help="Folder containing input PNG images, including single-channel Bayer and already-colour PNGs."
     )
     parser.add_argument(
         "--output-dir",
