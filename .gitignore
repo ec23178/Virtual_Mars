@@ -10,3 +10,4 @@ vic2png/
 # Ignore heavy raw data only in maria_pass
 datasets/maria_pass/data/
 datasets/maria_pass/IMG_files/
+.venv/

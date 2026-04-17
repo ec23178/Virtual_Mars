@@ -1,27 +1,37 @@
 import os
 
 
-def get_camera_group(file_stem):
-    # Group images by Mastcam lens.
-    # ML0 = left Mastcam
-    # MR0 = right Mastcam
+def get_camera_prefix(file_stem):
+    # Extract the two-character lens prefix from the filename.
+    # ML0 = left Mastcam, MR0 = right Mastcam.
+    # Used only for display labels and grouping key construction.
     if file_stem.startswith("ML0"):
         return "ML0"
     elif file_stem.startswith("MR0"):
         return "MR0"
     else:
-        raise ValueError(f"Unknown file stem: {file_stem}")
+        raise ValueError(f"Unknown file stem prefix: {file_stem}")
 
 
-def get_image_size(file_stem):
-    # Return the actual image dimensions for each Mastcam group.
-    # These sizes match the verified PNG outputs in your repo.
-    if file_stem.startswith("ML0"):
-        return 1152, 432
-    elif file_stem.startswith("MR0"):
-        return 1328, 1184
-    else:
-        raise ValueError(f"Unknown file stem: {file_stem}")
+def get_camera_group_key(item):
+    # Build a unique camera group key from the lens prefix and image size.
+    #
+    # Why this matters for Maria Pass:
+    # The legacy dataset had exactly one size per lens (ML0: 1152x432,
+    # MR0: 1328x1184), so grouping by prefix alone worked.  Maria Pass has
+    # three distinct ML0 crop sizes and two distinct MR0 crop sizes.
+    # COLMAP requires a separate camera entry for each unique (model, size)
+    # combination, otherwise the wrong focal length is applied to images
+    # that do not share the same resolution.
+    #
+    # Keys produced for Maria Pass:
+    #   ML0_1344x1200   (full-frame left)
+    #   ML0_1152x432    (panoramic strip left)
+    #   ML0_1152x1152   (square crop left)
+    #   MR0_1344x1200   (full-frame right)
+    #   MR0_1152x1152   (square crop right)
+    prefix = get_camera_prefix(item["file_stem"])
+    return f"{prefix}_{item['width']}x{item['height']}"
 
 
 def ensure_output_folder(output_folder):
@@ -39,22 +49,34 @@ def format_matrix_as_text(K):
 
 
 def split_results_by_camera_group(results):
-    # Split all computed intrinsics into left-camera and right-camera groups.
-    grouped = {
-        "ML0": [],
-        "MR0": []
-    }
+    # Group all computed intrinsics by unique (prefix, width, height) key.
+    #
+    # Returns a dict where each key is a string like "ML0_1344x1200"
+    # and each value is the list of result dicts that share that key.
+    # Keys are inserted in sorted order so iteration is deterministic.
+    grouped = {}
 
     for item in results:
-        camera_group = get_camera_group(item["file_stem"])
-        grouped[camera_group].append(item)
+        key = get_camera_group_key(item)
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(item)
 
-    return grouped
+    # Return a new dict with keys in sorted order.
+    return {k: grouped[k] for k in sorted(grouped)}
+
+
+def build_camera_ids(grouped):
+    # Assign a unique integer camera ID to each group key.
+    # IDs are assigned in sorted order (alphabetical by key) starting at 1.
+    # Sorting ensures the mapping is stable across runs.
+    return {key: idx + 1 for idx, key in enumerate(sorted(grouped))}
 
 
 def compute_group_averages(group_items):
     # Average the intrinsics across one camera group.
-    # This is much better than averaging left and right together.
+    # Averaging within a group (same lens, same image size) is valid because
+    # the CAHVOR parameters should be stable across a single sequence.
     if not group_items:
         raise ValueError("Cannot average an empty camera group.")
 
@@ -62,28 +84,31 @@ def compute_group_averages(group_items):
     avg_fy = sum(item["fy"] for item in group_items) / len(group_items)
     avg_cx = sum(item["cx"] for item in group_items) / len(group_items)
     avg_cy = sum(item["cy"] for item in group_items) / len(group_items)
-    avg_f = sum(item["f"] for item in group_items) / len(group_items)
+    avg_f  = sum(item["f"]  for item in group_items) / len(group_items)
 
     return {
         "fx": avg_fx,
         "fy": avg_fy,
         "cx": avg_cx,
         "cy": avg_cy,
-        "f": avg_f
+        "f":  avg_f
     }
 
 
 def write_intrinsics_txt(results, output_folder):
     # Write detailed per-image intrinsics for inspection and debugging.
+    # Width and height are taken from each result dict, not hardcoded.
     txt_path = os.path.join(output_folder, "intrinsics.txt")
 
     with open(txt_path, "w", encoding="utf-8") as f:
         for item in results:
-            width, height = get_image_size(item["file_stem"])
-            camera_group = get_camera_group(item["file_stem"])
+            width  = item["width"]
+            height = item["height"]
+            prefix = get_camera_prefix(item["file_stem"])
+            group  = get_camera_group_key(item)
 
             f.write(f"File: {item['file_stem']}\n")
-            f.write(f"Camera group: {camera_group}\n")
+            f.write(f"Camera group: {group}\n")
             f.write(f"Image size: {width} x {height}\n")
             f.write(f"fx: {item['fx']:.6f}\n")
             f.write(f"fy: {item['fy']:.6f}\n")
@@ -100,22 +125,26 @@ def write_intrinsics_txt(results, output_folder):
 
 def write_group_summary_txt(grouped_results, output_folder):
     # Write one readable summary file showing the averaged intrinsics
-    # for the left and right camera groups separately.
+    # for every camera group separately.
+    # Groups are written in sorted key order (e.g. ML0_1152x432,
+    # ML0_1344x1200, MR0_1152x1152, ...).
     summary_path = os.path.join(output_folder, "camera_group_summary.txt")
 
     with open(summary_path, "w", encoding="utf-8") as f:
-        for camera_group in ["ML0", "MR0"]:
-            group_items = grouped_results[camera_group]
+        for group_key in sorted(grouped_results):
+            group_items = grouped_results[group_key]
 
             if not group_items:
-                f.write(f"{camera_group}: no images found\n")
+                f.write(f"{group_key}: no images found\n")
                 f.write("-" * 50 + "\n\n")
                 continue
 
-            width, height = get_image_size(group_items[0]["file_stem"])
-            avg = compute_group_averages(group_items)
+            # All items in this group share the same width and height.
+            width  = group_items[0]["width"]
+            height = group_items[0]["height"]
+            avg    = compute_group_averages(group_items)
 
-            f.write(f"Camera group: {camera_group}\n")
+            f.write(f"Camera group: {group_key}\n")
             f.write(f"Number of images: {len(group_items)}\n")
             f.write(f"Image size: {width} x {height}\n")
             f.write(f"Average fx: {avg['fx']:.6f}\n")
@@ -129,35 +158,36 @@ def write_group_summary_txt(grouped_results, output_folder):
 
 
 def write_colmap_camera_txt(grouped_results, output_folder):
-    # Write a COLMAP-compatible cameras.txt using two shared cameras:
-    # one for ML0 and one for MR0.
+    # Write a COLMAP-compatible cameras.txt.
     #
-    # Format:
+    # One entry is written per unique (prefix, width, height) group.
+    # Camera IDs are assigned in sorted key order starting at 1.
+    #
+    # Format per line:
     # CAMERA_ID MODEL WIDTH HEIGHT PARAMS[]
     #
-    # SIMPLE_RADIAL expects:
+    # SIMPLE_RADIAL params:
     # f cx cy k
     #
-    # Here k is set to 0.0 for now.
+    # k (radial distortion) is set to 0.0 -- COLMAP will refine it during
+    # bundle adjustment if --Mapper.ba_refine_extra_params is enabled.
     cameras_path = os.path.join(output_folder, "cameras.txt")
-
-    camera_ids = {
-        "ML0": 1,
-        "MR0": 2
-    }
+    camera_ids   = build_camera_ids(grouped_results)
 
     with open(cameras_path, "w", encoding="utf-8") as f:
-        for camera_group in ["ML0", "MR0"]:
-            group_items = grouped_results[camera_group]
+        for group_key in sorted(grouped_results):
+            group_items = grouped_results[group_key]
 
             if not group_items:
                 continue
 
-            width, height = get_image_size(group_items[0]["file_stem"])
-            avg = compute_group_averages(group_items)
+            width  = group_items[0]["width"]
+            height = group_items[0]["height"]
+            avg    = compute_group_averages(group_items)
+            cam_id = camera_ids[group_key]
 
             f.write(
-                f"{camera_ids[camera_group]} "
+                f"{cam_id} "
                 f"SIMPLE_RADIAL "
                 f"{width} {height} "
                 f"{avg['f']:.6f} {avg['cx']:.6f} {avg['cy']:.6f} 0.0\n"
@@ -167,30 +197,28 @@ def write_colmap_camera_txt(grouped_results, output_folder):
 
 
 def write_image_camera_map(grouped_results, output_folder):
-    # Write a simple helper file showing which image belongs to which camera ID.
-    # This is useful when you later decide how to inject intrinsics into COLMAP.
-    map_path = os.path.join(output_folder, "image_camera_map.txt")
-
-    camera_ids = {
-        "ML0": 1,
-        "MR0": 2
-    }
+    # Write a helper file mapping each image filename to its camera ID.
+    # run_colmap.py reads this to know which images belong to which camera
+    # so it can call feature_extractor once per camera group with the
+    # correct intrinsics pinned.
+    map_path   = os.path.join(output_folder, "image_camera_map.txt")
+    camera_ids = build_camera_ids(grouped_results)
 
     with open(map_path, "w", encoding="utf-8") as f:
         f.write("file_stem image_name camera_group camera_id width height\n")
 
-        for camera_group in ["ML0", "MR0"]:
-            for item in grouped_results[camera_group]:
-                width, height = get_image_size(item["file_stem"])
+        for group_key in sorted(grouped_results):
+            for item in grouped_results[group_key]:
                 image_name = f"{item['file_stem']}.png"
+                cam_id     = camera_ids[group_key]
 
                 f.write(
                     f"{item['file_stem']} "
                     f"{image_name} "
-                    f"{camera_group} "
-                    f"{camera_ids[camera_group]} "
-                    f"{width} "
-                    f"{height}\n"
+                    f"{group_key} "
+                    f"{cam_id} "
+                    f"{item['width']} "
+                    f"{item['height']}\n"
                 )
 
     return map_path
@@ -198,23 +226,23 @@ def write_image_camera_map(grouped_results, output_folder):
 
 def export_all_intrinsics(results, output_folder):
     # Main export function.
-    # This writes:
-    # - detailed per-image intrinsics
-    # - per-camera-group summary
-    # - COLMAP-style cameras.txt
-    # - image-to-camera assignment helper file
+    # Writes:
+    # - per-image intrinsics.txt
+    # - per-camera-group camera_group_summary.txt
+    # - COLMAP cameras.txt  (one entry per unique prefix+size group)
+    # - image_camera_map.txt (which image maps to which camera ID)
     ensure_output_folder(output_folder)
 
     grouped_results = split_results_by_camera_group(results)
 
-    intrinsics_txt_path = write_intrinsics_txt(results, output_folder)
-    summary_txt_path = write_group_summary_txt(grouped_results, output_folder)
-    cameras_txt_path = write_colmap_camera_txt(grouped_results, output_folder)
-    image_camera_map_path = write_image_camera_map(grouped_results, output_folder)
+    intrinsics_txt_path      = write_intrinsics_txt(results, output_folder)
+    summary_txt_path         = write_group_summary_txt(grouped_results, output_folder)
+    cameras_txt_path         = write_colmap_camera_txt(grouped_results, output_folder)
+    image_camera_map_path    = write_image_camera_map(grouped_results, output_folder)
 
     return {
-        "intrinsics_txt": intrinsics_txt_path,
+        "intrinsics_txt":           intrinsics_txt_path,
         "camera_group_summary_txt": summary_txt_path,
-        "cameras_txt": cameras_txt_path,
-        "image_camera_map_txt": image_camera_map_path
+        "cameras_txt":              cameras_txt_path,
+        "image_camera_map_txt":     image_camera_map_path
     }

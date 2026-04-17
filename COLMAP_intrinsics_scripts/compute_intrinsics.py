@@ -6,16 +6,6 @@ import numpy as np
 PIXEL_PITCH_MM = 0.0074
 
 
-def get_image_size(file_stem):
-    # Return the verified image size for each Mastcam group.
-    if file_stem.startswith("ML0"):
-        return 1152, 432
-    elif file_stem.startswith("MR0"):
-        return 1328, 1184
-    else:
-        raise ValueError(f"Unknown file stem: {file_stem}")
-
-
 def compute_intrinsics(A, H, V):
     # Compute camera intrinsics from CAHVOR A, H, V vectors.
     #
@@ -88,17 +78,25 @@ def compute_intrinsics(A, H, V):
 def compute_intrinsics_for_dataset(parsed_items):
     # Compute intrinsics for every parsed XML item.
     #
-    # This also adds sanity checks against the expected image dimensions.
-    # If the principal point is very far from the image centre,
-    # that is a strong sign that the metadata source/formulation still
-    # needs more work upstream.
+    # Width and height are read directly from each parsed item dict,
+    # which gets them from the XML Axis_Array elements via parse_cahvor.py.
+    # This replaces the old hardcoded get_image_size() approach, which only
+    # worked for the legacy 18-image dataset and broke for Maria Pass where
+    # ML0 alone has three distinct crop sizes (1344x1200, 1152x432, 1152x1152).
+    #
+    # The sanity check compares the computed principal point against the
+    # image centre derived from the actual XML dimensions.  If the principal
+    # point is very far from the image centre that is a sign that something
+    # is still wrong upstream in the metadata pipeline.
 
     results = []
 
     for item in parsed_items:
         intrinsics = compute_intrinsics(item["A"], item["H"], item["V"])
 
-        width, height = get_image_size(item["file_stem"])
+        # Use actual dimensions from parse_cahvor, not hardcoded values.
+        width = item["width"]
+        height = item["height"]
 
         # Expected image centre in pixel coordinates.
         expected_cx = width / 2.0
