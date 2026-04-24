@@ -8,6 +8,5 @@ vic2png/
 *.zip
 
 # Ignore heavy raw data only in maria_pass
-datasets/raw/data/
-datasets/raw/IMG_files/
+datasets/
 
