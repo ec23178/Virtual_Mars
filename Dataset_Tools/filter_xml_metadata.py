@@ -1,72 +1,10 @@
-# filter_xml_metadata.py  (UPDATED -- adds --drive filter)
+# filter_xml_metadata.py
 #
-# Filters IMG + XML pairs for Mastcam datasets directly from XML metadata
-# and the site/drive code embedded in each filename.
+# Filters IMG + XML pairs for Mastcam datasets directly from XML metadata and the site/drive code embedded in each filename.
 #
 # NO PNG conversion is needed before running this script.
 # Filtering happens purely on filename and XML content.
-#
-# -----------------------------------------------------------------------
-# Why the --drive filter was added
-# -----------------------------------------------------------------------
-# The original script filtered only by --site, which accepted images from
-# four physically separate rover parking positions (drives 458, 680, 876,
-# 1146) at Maria Pass site 48.  Because each drive is a different location
-# in space, images from different drives have no visual overlap and COLMAP
-# cannot register them together -- this was the root cause of the "5-frame
-# reconstruction" problem where only the tiny mcam04381 cluster (drive 1146,
-# 5 LEFT frames) survived.
-#
-# Drive breakdown for Maria Pass (site 48, sols 990-991):
-#   Drive  458 ->  4 frames  (sparse, mixed cameras)
-#   Drive  680 ->  4 frames  (LEFT only, sol 990)
-#   Drive  876 -> 79 frames  <<< RECOMMENDED -- richest parking position
-#   Drive 1146 ->  7 frames  (sparse, LEFT only)
-#
-# For COLMAP / NeRF the recommended invocation is:
-#   --site 48 --drive 876 --instrument right --min-lines 1000 --min-samples 1000
-# This selects ~34 full-frame 1200x1344 RIGHT-camera images from one spot,
-# which is the largest homogeneous block available for reconstruction.
-#
-# -----------------------------------------------------------------------
-# Output structure
-# -----------------------------------------------------------------------
-#   <output_dir>/
-#     data/               <- accepted XML files
-#     IMG_files/          <- accepted IMG files
-#     filter_report.csv   <- full record of every file examined
-#
-# -----------------------------------------------------------------------
-# Usage examples
-# -----------------------------------------------------------------------
-#
-# RECOMMENDED (drive 876, RIGHT camera, full-frame only):
-#   python filter_xml_metadata.py \
-#       --xml-dir  datasets/raw/data \
-#       --img-dir  datasets/raw/IMG_files \
-#       --output-dir datasets/maria_pass_d876_right \
-#       --site 48 --drive 876 --instrument right \
-#       --min-lines 1000 --min-samples 1000
-#
-# All cameras at drive 876 (inspection / broader dataset):
-#   python filter_xml_metadata.py \
-#       --xml-dir  datasets/raw/data \
-#       --img-dir  datasets/raw/IMG_files \
-#       --output-dir datasets/maria_pass_d876_all \
-#       --site 48 --drive 876
-#
-# Multiple drives (comma-separated, no spaces):
-#   python filter_xml_metadata.py \
-#       --xml-dir  datasets/raw/data \
-#       --img-dir  datasets/raw/IMG_files \
-#       --output-dir datasets/maria_pass_multi \
-#       --site 48 --drive 876,1146
-#
-# Legacy behaviour (no drive filter, all drives accepted):
-#   python filter_xml_metadata.py \
-#       --xml-dir  datasets/raw/data \
-#       --img-dir  datasets/raw/IMG_files \
-#       --output-dir datasets/maria_pass_filtered
+# The output is a filtered set of XML + IMG files, ready for CAHVOR parsing and NeRF reconstruction.
 
 import os
 import re
@@ -77,9 +15,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-# -----------------------------------------------------------------------
 # PDS4 XML namespace map.
-# -----------------------------------------------------------------------
 XML_NS = {
     "pds":         "http://pds.nasa.gov/pds4/pds/v1",
     "msn":         "http://pds.nasa.gov/pds4/msn/v1",
@@ -98,12 +34,9 @@ S_CODE_PATTERN = re.compile(r"_S(\d{3})(\d{4})MCAM", re.IGNORECASE)
 MCAM_PATTERN = re.compile(r"(MCAM\d+)", re.IGNORECASE)
 
 
-# -----------------------------------------------------------------------
 # Helpers: filename parsing
-# -----------------------------------------------------------------------
-
 def parse_site_drive(filename):
-    """Return (site_int, drive_int) from the S-code in a Mastcam filename stem."""
+    # Return (site_int, drive_int) from the S-code in a Mastcam filename stem.
     m = S_CODE_PATTERN.search(filename)
     if m:
         return int(m.group(1)), int(m.group(2))
@@ -111,7 +44,7 @@ def parse_site_drive(filename):
 
 
 def parse_sequence_id(filename):
-    """Return the MCAM sequence ID string, e.g. 'MCAM04379'."""
+    # Return the MCAM sequence ID string, e.g. 'MCAM04379'.
     m = MCAM_PATTERN.search(filename)
     if m:
         return m.group(1).upper()
@@ -119,7 +52,7 @@ def parse_sequence_id(filename):
 
 
 def parse_instrument(filename):
-    """Return 'LEFT', 'RIGHT', or 'UNKNOWN' from the filename prefix (ML0/MR0)."""
+    # Return 'LEFT', 'RIGHT', or 'UNKNOWN' from the filename prefix (ML0/MR0).
     upper = filename.upper()
     if upper.startswith("ML"):
         return "LEFT"
@@ -128,12 +61,9 @@ def parse_instrument(filename):
     return "UNKNOWN"
 
 
-# -----------------------------------------------------------------------
-# Helper: parse XML label
-# -----------------------------------------------------------------------
-
+# Helper: parse XML label and extract metadata
 def parse_xml_metadata(xml_path):
-    """Parse a PDS4 XML label and return a metadata dict (or None on failure)."""
+    # Parse a PDS4 XML label and return a metadata dict (or None on failure).
     try:
         tree = ET.parse(xml_path)
         root = tree.getroot()
@@ -170,12 +100,10 @@ def parse_xml_metadata(xml_path):
     }
 
 
-# -----------------------------------------------------------------------
-# Helper: parse --drive argument
-# -----------------------------------------------------------------------
 
+# Helper: parse --drive argument
 def parse_drive_arg(drive_str):
-    """Parse '876' -> {876} or '876,1146' -> {876, 1146}. None means 'all drives'."""
+    # Parse '876' -> {876} or '876,1146' -> {876, 1146}. None means 'all drives'.
     if drive_str is None:
         return None
     parts = [p.strip() for p in drive_str.split(",") if p.strip()]
@@ -189,15 +117,11 @@ def parse_drive_arg(drive_str):
         )
 
 
-# -----------------------------------------------------------------------
 # Helper: apply all filters
-# -----------------------------------------------------------------------
-
 def apply_filters(site, drive, instrument, xml_meta, args):
-    """Decide whether a file passes all filter criteria.
-
-    Returns (True, []) if accepted, or (False, [reasons]) if rejected.
-    """
+    # Decide whether a file passes all filter criteria.
+    # Returns (True, []) if accepted, or (False, [reasons]) if rejected.
+    
     reasons = []
 
     # --- Site filter (primary geographic discriminator) ---
@@ -206,7 +130,7 @@ def apply_filters(site, drive, instrument, xml_meta, args):
     elif site != args.site:
         reasons.append(f"site_{site}_not_{args.site}")
 
-    # --- Drive filter (NEW) ---
+    # --- Drive filter ---
     # Prevents mixing images from different rover parking positions,
     # which would break COLMAP feature matching.
     if args.drives is not None:
@@ -250,10 +174,7 @@ def apply_filters(site, drive, instrument, xml_meta, args):
     return len(reasons) == 0, reasons
 
 
-# -----------------------------------------------------------------------
 # Helper: copy one XML + IMG pair into output directories
-# -----------------------------------------------------------------------
-
 def copy_pair(stem, xml_path, img_dir, output_data_dir, output_img_dir, dry_run):
     """Copy XML and its matching IMG file into the output structure."""
     dest_xml = output_data_dir / (stem + ".xml")
@@ -275,10 +196,7 @@ def copy_pair(stem, xml_path, img_dir, output_data_dir, output_img_dir, dry_run)
     return img_copied
 
 
-# -----------------------------------------------------------------------
 # Helper: write CSV report
-# -----------------------------------------------------------------------
-
 def write_csv_report(rows, report_path):
     fieldnames = [
         "file_stem", "instrument", "site", "drive", "sequence_id",
@@ -291,10 +209,7 @@ def write_csv_report(rows, report_path):
         writer.writerows(rows)
 
 
-# -----------------------------------------------------------------------
 # Main
-# -----------------------------------------------------------------------
-
 def main():
     parser = argparse.ArgumentParser(
         description=(

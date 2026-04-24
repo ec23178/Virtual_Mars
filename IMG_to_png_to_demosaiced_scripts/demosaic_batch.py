@@ -59,8 +59,6 @@ def demosaic_malvar(img_array):
     )
 
     # Clip values so they stay within the valid display range.
-    # Do NOT use per-image min/max normalization here,
-    # because that changes each image differently and hurts reproducibility.
     rgb = np.clip(rgb, 0.0, 1.0)
 
     # Convert back to 8-bit so the result can be saved as PNG.

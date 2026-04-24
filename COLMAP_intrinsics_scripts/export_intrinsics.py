@@ -15,21 +15,6 @@ def get_camera_prefix(file_stem):
 
 def get_camera_group_key(item):
     # Build a unique camera group key from the lens prefix and image size.
-    #
-    # Why this matters for Maria Pass:
-    # The legacy dataset had exactly one size per lens (ML0: 1152x432,
-    # MR0: 1328x1184), so grouping by prefix alone worked.  Maria Pass has
-    # three distinct ML0 crop sizes and two distinct MR0 crop sizes.
-    # COLMAP requires a separate camera entry for each unique (model, size)
-    # combination, otherwise the wrong focal length is applied to images
-    # that do not share the same resolution.
-    #
-    # Keys produced for Maria Pass:
-    #   ML0_1344x1200   (full-frame left)
-    #   ML0_1152x432    (panoramic strip left)
-    #   ML0_1152x1152   (square crop left)
-    #   MR0_1344x1200   (full-frame right)
-    #   MR0_1152x1152   (square crop right)
     prefix = get_camera_prefix(item["file_stem"])
     return f"{prefix}_{item['width']}x{item['height']}"
 
@@ -51,8 +36,7 @@ def format_matrix_as_text(K):
 def split_results_by_camera_group(results):
     # Group all computed intrinsics by unique (prefix, width, height) key.
     #
-    # Returns a dict where each key is a string like "ML0_1344x1200"
-    # and each value is the list of result dicts that share that key.
+    # Returns a dict where each key is a string like "ML0_1344x1200" and each value is the list of result dicts that share that key.
     # Keys are inserted in sorted order so iteration is deterministic.
     grouped = {}
 
@@ -75,8 +59,7 @@ def build_camera_ids(grouped):
 
 def compute_group_averages(group_items):
     # Average the intrinsics across one camera group.
-    # Averaging within a group (same lens, same image size) is valid because
-    # the CAHVOR parameters should be stable across a single sequence.
+    # Averaging within a group (same lens, same image size) is valid because the CAHVOR parameters should be stable across a single sequence.
     if not group_items:
         raise ValueError("Cannot average an empty camera group.")
 
@@ -97,7 +80,7 @@ def compute_group_averages(group_items):
 
 def write_intrinsics_txt(results, output_folder):
     # Write detailed per-image intrinsics for inspection and debugging.
-    # Width and height are taken from each result dict, not hardcoded.
+    # Width and height are taken from each result dict, NOT HARDCODED.
     txt_path = os.path.join(output_folder, "intrinsics.txt")
 
     with open(txt_path, "w", encoding="utf-8") as f:
@@ -124,10 +107,8 @@ def write_intrinsics_txt(results, output_folder):
 
 
 def write_group_summary_txt(grouped_results, output_folder):
-    # Write one readable summary file showing the averaged intrinsics
-    # for every camera group separately.
-    # Groups are written in sorted key order (e.g. ML0_1152x432,
-    # ML0_1344x1200, MR0_1152x1152, ...).
+    # Write one readable summary file showing the averaged intrinsics for every camera group separately.
+    # Groups are written in sorted key order (e.g. ML0_1152x432, ML0_1344x1200, MR0_1152x1152, ...).
     summary_path = os.path.join(output_folder, "camera_group_summary.txt")
 
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -169,8 +150,7 @@ def write_colmap_camera_txt(grouped_results, output_folder):
     # SIMPLE_RADIAL params:
     # f cx cy k
     #
-    # k (radial distortion) is set to 0.0 -- COLMAP will refine it during
-    # bundle adjustment if --Mapper.ba_refine_extra_params is enabled.
+    # k (radial distortion) is set to 0.0 -- COLMAP will refine it during bundle adjustment if --Mapper.ba_refine_extra_params is enabled.
     cameras_path = os.path.join(output_folder, "cameras.txt")
     camera_ids   = build_camera_ids(grouped_results)
 
@@ -198,9 +178,7 @@ def write_colmap_camera_txt(grouped_results, output_folder):
 
 def write_image_camera_map(grouped_results, output_folder):
     # Write a helper file mapping each image filename to its camera ID.
-    # run_colmap.py reads this to know which images belong to which camera
-    # so it can call feature_extractor once per camera group with the
-    # correct intrinsics pinned.
+    # run_colmap.py reads this to know which images belong to which camera so it can call feature_extractor once per camera group with the correct intrinsics pinned.
     map_path   = os.path.join(output_folder, "image_camera_map.txt")
     camera_ids = build_camera_ids(grouped_results)
 
@@ -229,7 +207,7 @@ def export_all_intrinsics(results, output_folder):
     # Writes:
     # - per-image intrinsics.txt
     # - per-camera-group camera_group_summary.txt
-    # - COLMAP cameras.txt  (one entry per unique prefix+size group)
+    # - COLMAP cameras.txt  (one entry per unique prefix + size group)
     # - image_camera_map.txt (which image maps to which camera ID)
     ensure_output_folder(output_folder)
 

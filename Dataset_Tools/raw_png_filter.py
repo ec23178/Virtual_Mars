@@ -1,7 +1,6 @@
 # raw_png_filter.py
 #
 # Stage 2 visual filter for Virtual Mars.
-#
 # Run this AFTER:
 #   1. filter_xml_metadata.py
 #   2. vic2png conversion
@@ -10,21 +9,12 @@
 #   3. demosaic_batch.py
 #   4. select_colmap_images.py
 #
-# -----------------------------------------------------------------------
-# Purpose
-# -----------------------------------------------------------------------
-# This script scores the raw PNG outputs from vic2png and builds a cleaner
-# intermediate dataset before demosaicing.
+# This script scores the raw PNG outputs from vic2png and builds a cleaner intermediate dataset before demosaicing.
 #
-# It does three things:
+# It does 3 things:
 #   1. Scores each raw PNG using grayscale-friendly image heuristics.
 #   2. Classifies each image as keep / review / reject.
-#   3. Copies the selected files into a new output dataset structure:
-#
-#        <output_dir>/
-#          data/          <- matching XML files
-#          IMG_files/     <- matching IMG files
-#          raw_png/       <- accepted PNGs (keep + optionally review)
+#   3. Copies the selected files into a new output dataset structure
 #
 # It also writes:
 #   - raw_png_filter_report.csv
@@ -33,63 +23,6 @@
 #   - reject_list.txt
 #   - sequence_summary.csv
 #
-# -----------------------------------------------------------------------
-# Why this stage exists
-# -----------------------------------------------------------------------
-# The old filter_maria_pass_images.py was useful, but it acted too much like a
-# general PNG filter without fitting neatly into the pipeline. This version
-# explicitly becomes the "raw PNG cleanup" stage:
-#
-#   XML/IMG metadata filtering -> vic2png -> raw_png_filter.py -> demosaic
-#
-# That means demosaicing only happens on images that have already passed:
-#   - metadata checks
-#   - basic visual quality checks
-#
-# This is cleaner for the Maria Pass pipeline and easier to justify in the report.
-#
-# -----------------------------------------------------------------------
-# Recommended usage
-# -----------------------------------------------------------------------
-# Example:
-#
-#   python raw_png_filter.py ^
-#       --png-dir datasets/maria_pass_filtered/raw_png ^
-#       --xml-dir datasets/maria_pass_filtered/data ^
-#       --img-dir datasets/maria_pass_filtered/IMG_files ^
-#       --output-dir datasets/maria_pass_filtered2 ^
-#       --include-review
-#
-# Dry run:
-#
-#   python raw_png_filter.py ^
-#       --png-dir datasets/maria_pass_filtered/raw_png ^
-#       --xml-dir datasets/maria_pass_filtered/data ^
-#       --img-dir datasets/maria_pass_filtered/IMG_files ^
-#       --output-dir datasets/maria_pass_filtered2 ^
-#       --include-review ^
-#       --dry-run
-#
-# Notes:
-# - By default, only "keep" images are copied.
-# - If --include-review is used, both keep + review are copied.
-# - "reject" images are never copied.
-#
-# -----------------------------------------------------------------------
-# Design notes
-# -----------------------------------------------------------------------
-# These PNGs are still raw Bayer-style outputs from vic2png, so this script
-# avoids relying on colour assumptions. Everything important is based on
-# grayscale-compatible structure:
-#   - resolution
-#   - sharpness
-#   - texture
-#   - brightness
-#   - rough scene flags
-#
-# The sequence summary is retained because MCAM groups are still useful for
-# understanding whether the filtered set is dominated by a single sequence.
-
 
 import os
 import re
@@ -102,15 +35,13 @@ import numpy as np
 from PIL import Image
 
 
-# -----------------------------------------------------------------------
-# Filename helpers
-# -----------------------------------------------------------------------
 
+# Filename helpers
 MCAM_PATTERN = re.compile(r"(MCAM\d+)", re.IGNORECASE)
 
 
 def get_sequence_id(file_name: str) -> str:
-    """Extract the MCAM sequence ID from a filename."""
+    # Extract the MCAM sequence ID from a filename.
     match = MCAM_PATTERN.search(file_name.upper())
     if match:
         return match.group(1)
@@ -118,14 +49,12 @@ def get_sequence_id(file_name: str) -> str:
 
 
 def get_file_stem(file_name: str) -> str:
-    """Return filename without extension."""
+    # Return filename without extension.
     return Path(file_name).stem
 
 
-# -----------------------------------------------------------------------
-# Image loading
-# -----------------------------------------------------------------------
 
+# Image loading
 def load_image(image_path: Path):
     """
     Load one PNG image and return:
@@ -142,10 +71,8 @@ def load_image(image_path: Path):
     return gray, width, height
 
 
-# -----------------------------------------------------------------------
-# Image quality metrics
-# -----------------------------------------------------------------------
 
+# Image quality metrics
 def compute_sharpness(gray: np.ndarray) -> float:
     """
     Laplacian variance sharpness score.
@@ -168,11 +95,9 @@ def compute_sharpness(gray: np.ndarray) -> float:
 
 
 def compute_texture(gray: np.ndarray) -> float:
-    """
-    Mean absolute pixel difference in x and y.
+    # Mean absolute pixel difference in x and y.
+    # Higher value usually means more edges and more structure.
 
-    Higher value usually means more edges and more structure.
-    """
     if gray.shape[0] < 2 or gray.shape[1] < 2:
         return 0.0
 
@@ -199,11 +124,9 @@ def compute_brightness_stats(gray: np.ndarray):
 
 
 def estimate_sky_fraction(gray: np.ndarray) -> float:
-    """
-    Very rough top-strip sky heuristic.
-
-    Because these are raw PNGs, treat this as a soft clue only.
-    """
+    # Very rough top-strip sky heuristic.
+    # Because these are raw PNGs, treat this as a soft clue only.
+   
     h, _ = gray.shape
     top_h = max(1, int(h * 0.20))
     top = gray[:top_h, :]
@@ -219,11 +142,9 @@ def estimate_sky_fraction(gray: np.ndarray) -> float:
 
 
 def estimate_ground_only_flag(gray: np.ndarray) -> bool:
-    """
-    Heuristic for frames that may be mostly close-up ground/rock.
-
-    This should not auto-reject; it only lowers confidence.
-    """
+    # Heuristic for frames that may be mostly close-up ground/rock.
+    # his should not auto-reject; it only lowers confidence.
+    
     h, _ = gray.shape
     if h < 2:
         return False
@@ -242,11 +163,9 @@ def estimate_ground_only_flag(gray: np.ndarray) -> bool:
 
 
 def estimate_rover_intrusion_flag(gray: np.ndarray) -> bool:
-    """
-    Very rough flag for possible rover hardware intrusion in the lower strip.
-
-    This is a review signal, not a hard rejection rule.
-    """
+    # Very rough flag for possible rover hardware intrusion in the lower strip.
+    # This is a review signal, not a hard rejection rule.
+    
     h, _ = gray.shape
     bottom_h = max(1, int(h * 0.20))
     bottom = gray[h - bottom_h :, :]
@@ -258,14 +177,10 @@ def estimate_rover_intrusion_flag(gray: np.ndarray) -> bool:
     return bottom_texture > 18 and (bottom_dark + bottom_bright) > 0.20
 
 
-# -----------------------------------------------------------------------
 # Image scoring
-# -----------------------------------------------------------------------
-
 def score_image(image_path: Path) -> dict:
-    """
-    Score one raw PNG and classify it as keep / review / reject.
-    """
+    # Score one raw PNG and classify it as keep / review / reject.
+    
     try:
         gray, width, height = load_image(image_path)
     except Exception as exc:
@@ -296,9 +211,7 @@ def score_image(image_path: Path) -> dict:
     reasons = []
     score = 0.0
 
-    # ------------------------------------------------------------
     # Resolution checks
-    # ------------------------------------------------------------
     if width < 700 or height < 300:
         reasons.append("too_small")
         return {
@@ -323,9 +236,8 @@ def score_image(image_path: Path) -> dict:
     elif width >= 1000:
         score += 1.0
 
-    # ------------------------------------------------------------
+
     # Sharpness checks
-    # ------------------------------------------------------------
     if sharpness < 8:
         reasons.append("very_blurry")
         return {
@@ -350,9 +262,8 @@ def score_image(image_path: Path) -> dict:
     else:
         score += 2.0
 
-    # ------------------------------------------------------------
+
     # Texture checks
-    # ------------------------------------------------------------
     if texture < 4:
         reasons.append("very_low_texture")
         return {
@@ -377,9 +288,8 @@ def score_image(image_path: Path) -> dict:
     else:
         score += 2.0
 
-    # ------------------------------------------------------------
+
     # Brightness sanity checks
-    # ------------------------------------------------------------
     if dark_fraction > 0.40:
         reasons.append("too_dark")
         score -= 1.0
@@ -392,9 +302,7 @@ def score_image(image_path: Path) -> dict:
         reasons.append("low_contrast")
         score -= 0.5
 
-    # ------------------------------------------------------------
     # Scene heuristics
-    # ------------------------------------------------------------
     if sky_fraction > 0.5:
         reasons.append("possible_sky_dominance")
         score -= 1.0
@@ -446,15 +354,11 @@ def score_image(image_path: Path) -> dict:
     }
 
 
-# -----------------------------------------------------------------------
 # Sequence summary
-# -----------------------------------------------------------------------
-
 def summarise_sequences(rows: list[dict]) -> list[dict]:
-    """
-    Summarise scores by MCAM sequence to help inspect whether one sequence
-    dominates the filtered set.
-    """
+    # Summarise scores by MCAM sequence to help inspect whether one sequence
+    # dominates the filtered set.
+    
     grouped = {}
 
     for row in rows:
@@ -507,12 +411,10 @@ def summarise_sequences(rows: list[dict]) -> list[dict]:
     return summary_rows
 
 
-# -----------------------------------------------------------------------
-# File copy helpers
-# -----------------------------------------------------------------------
 
+# File copy helpers
 def find_matching_file(directory: Path, stem: str, extensions: tuple[str, ...]) -> Path | None:
-    """Find a matching file stem with one of several possible extensions."""
+    # Find a matching file stem with one of several possible extensions.
     for ext in extensions:
         candidate = directory / f"{stem}{ext}"
         if candidate.exists():
@@ -521,7 +423,7 @@ def find_matching_file(directory: Path, stem: str, extensions: tuple[str, ...]) 
 
 
 def copy_if_exists(src: Path | None, dst: Path, dry_run: bool) -> bool:
-    """Copy file if present."""
+    # Copy file if present.
     if src is None:
         return False
     if not dry_run:
@@ -529,10 +431,7 @@ def copy_if_exists(src: Path | None, dst: Path, dry_run: bool) -> bool:
     return True
 
 
-# -----------------------------------------------------------------------
 # Main
-# -----------------------------------------------------------------------
-
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -684,9 +583,8 @@ def main():
             if img_ok:
                 copied_img += 1
 
-    # -------------------------------------------------------------------
+
     # Write main CSV report
-    # -------------------------------------------------------------------
     report_csv = output_dir / "raw_png_filter_report.csv"
     with open(report_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
@@ -718,9 +616,7 @@ def main():
         writer.writeheader()
         writer.writerows(all_rows)
 
-    # -------------------------------------------------------------------
     # Write text lists
-    # -------------------------------------------------------------------
     keep_txt = output_dir / "keep_list.txt"
     review_txt = output_dir / "review_list.txt"
     reject_txt = output_dir / "reject_list.txt"
@@ -737,9 +633,8 @@ def main():
             else:
                 f_reject.write(row["file_name"] + "\n")
 
-    # -------------------------------------------------------------------
+    
     # Write sequence summary
-    # -------------------------------------------------------------------
     seq_rows = summarise_sequences(all_rows)
     seq_csv = output_dir / "sequence_summary.csv"
 
@@ -759,9 +654,8 @@ def main():
         writer.writeheader()
         writer.writerows(seq_rows)
 
-    # -------------------------------------------------------------------
+
     # Summary
-    # -------------------------------------------------------------------
     total_keep = sum(1 for row in all_rows if row["status"] == "keep")
     total_review = sum(1 for row in all_rows if row["status"] == "review")
     total_reject = sum(1 for row in all_rows if row["status"] == "reject")

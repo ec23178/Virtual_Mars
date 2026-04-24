@@ -67,22 +67,9 @@ def _read_vector_vertical_from_xml(root):
 
 
 def _read_dimensions_from_xml(root):
-    # Read image width (Sample axis) and height (Line axis) from the
-    # PDS4 Axis_Array elements.
-    #
-    # PDS4 labels contain one Axis_Array per image dimension, e.g.:
-    #
-    #   <pds:Axis_Array>
-    #     <pds:axis_name>Line</pds:axis_name>
-    #     <pds:elements>1200</pds:elements>
-    #   </pds:Axis_Array>
-    #   <pds:Axis_Array>
-    #     <pds:axis_name>Sample</pds:axis_name>
-    #     <pds:elements>1344</pds:elements>
-    #   </pds:Axis_Array>
-    #
-    # This avoids hardcoding image sizes per camera group, which breaks
-    # when different sequences have different crop dimensions.
+    # Read image width (Sample axis) and height (Line axis) from the PDS4 Axis_Array elements.
+    # PDS4 labels contain one Axis_Array per image dimension
+    # This avoids hardcoding image sizes per camera group, which breaks when different sequences have different crop dimensions.
     width = None
     height = None
 
@@ -122,8 +109,7 @@ def _read_img_header(img_path):
 def _parse_model_component(header_text, component_number):
     # Extract one CAHVOR model component from the IMG header.
     #
-    # Example lines in the header look like:
-    # MODEL_COMPONENT_2 = (1.513950e-01,-9.821702e-01,-1.113792e-01)
+    # Example lines in the header look like: MODEL_COMPONENT_2 = (1.513950e-01,-9.821702e-01,-1.113792e-01)
     #
     # Component mapping:
     # 1 = C
@@ -155,8 +141,7 @@ def _parse_model_component(header_text, component_number):
 
 def _read_cahvor_from_img(img_path):
     # Read A, H, V directly from the IMG header.
-    # This is the preferred source because it is closer to the
-    # original metadata than the XML fallback.
+    # This is the preferred source because it is closer to the original metadata than the XML fallback.
     header_text = _read_img_header(img_path)
 
     # Basic sanity check so we fail early with a useful message.
@@ -172,13 +157,7 @@ def _read_cahvor_from_img(img_path):
 
 def _resolve_img_path(xml_path):
     # Resolve the IMG file path from the XML path.
-    #
-    # Expected repo layout:
-    # project_root/
-    #   data/
-    #     file.xml
-    #   IMG_files/
-    #     file.IMG
+    # This to account for current set up structure
     file_stem = os.path.splitext(os.path.basename(xml_path))[0]
     project_root = os.path.dirname(os.path.dirname(xml_path))
     img_path = os.path.join(project_root, "IMG_files", f"{file_stem}.IMG")
@@ -186,11 +165,8 @@ def _resolve_img_path(xml_path):
 
 
 def parse_cahvor_xml(xml_path):
-    # Parse one XML path, but prefer the corresponding IMG header
-    # as the main source of A, H, V.
-    #
-    # The XML is always parsed (even when the IMG exists) because
-    # width and height can only be read from Axis_Array in the XML.
+    # Parse one XML path, but prefer the corresponding IMG header as the main source of A, H, V.
+    # The XML is always parsed (even when the IMG exists) because width and height can only be read from Axis_Array in the XML.
     file_stem = os.path.splitext(os.path.basename(xml_path))[0]
     img_path = _resolve_img_path(xml_path)
 
@@ -232,9 +208,7 @@ def parse_cahvor_xml(xml_path):
 
 def parse_cahvor_folder(data_folder):
     # Parse every XML file in the folder.
-    #
-    # Even though we loop through XML files, the actual A/H/V values
-    # will be taken from the matching IMG header whenever available.
+    # Even though we loop through XML files, the actual A/H/V values will be taken from the matching IMG header whenever available.
     # Width and height are always read from the XML Axis_Array elements.
     if not os.path.isdir(data_folder):
         raise ValueError(f"Provided path '{data_folder}' is not a valid directory.")

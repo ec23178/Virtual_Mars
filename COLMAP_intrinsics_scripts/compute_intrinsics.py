@@ -1,13 +1,12 @@
 import math
 import numpy as np
 
-# Mastcam CCD pixel pitch from the report / instrument details.
-# 7.4 micrometres = 0.0074 mm
+# Mastcam CCD pixel pitch from last years report / instrument details.
 PIXEL_PITCH_MM = 0.0074
 
 
 def compute_intrinsics(A, H, V):
-    # Compute camera intrinsics from CAHVOR A, H, V vectors.
+    # Compute camera intrinsics from CAHVOR A, H, V vectors
     #
     # IMPORTANT:
     # - hc = a . h
@@ -18,8 +17,7 @@ def compute_intrinsics(A, H, V):
     # For COLMAP, focal length must be in PIXELS, not millimetres.
     # So the pixel-space focal values are hs and vs.
     #
-    # We also compute focal length in mm for inspection/debugging,
-    # but the K matrix and exported f use pixel units.
+    # We also compute focal length in mm for inspection/debugging, but the K matrix and exported f use pixel units.
 
     # Convert inputs to numpy arrays.
     A = np.array(A, dtype=float)
@@ -77,17 +75,6 @@ def compute_intrinsics(A, H, V):
 
 def compute_intrinsics_for_dataset(parsed_items):
     # Compute intrinsics for every parsed XML item.
-    #
-    # Width and height are read directly from each parsed item dict,
-    # which gets them from the XML Axis_Array elements via parse_cahvor.py.
-    # This replaces the old hardcoded get_image_size() approach, which only
-    # worked for the legacy 18-image dataset and broke for Maria Pass where
-    # ML0 alone has three distinct crop sizes (1344x1200, 1152x432, 1152x1152).
-    #
-    # The sanity check compares the computed principal point against the
-    # image centre derived from the actual XML dimensions.  If the principal
-    # point is very far from the image centre that is a sign that something
-    # is still wrong upstream in the metadata pipeline.
 
     results = []
 

@@ -16,8 +16,7 @@ def load_keep_list(keep_list_path):
     # Each line in the file is a PNG filename like:
     #   ML0_0990_0991_MCAM04372_..._D1.png
     #
-    # We strip the .png extension to get the file stem so we can
-    # match against the stems returned by parse_cahvor_folder().
+    # We strip the .png extension to get the file stem so we can match against the stems returned by parse_cahvor_folder().
     stems = set()
 
     with open(keep_list_path, "r", encoding="utf-8") as f:
@@ -36,8 +35,7 @@ def load_keep_list(keep_list_path):
 
 
 def main():
-    # Set up command-line arguments so the script can be reused
-    # with different input and output folders without editing code.
+    # Set up command-line arguments so the script can be reused with different input and output folders without editing code.
     parser = argparse.ArgumentParser(
         description="Parse CAHVOR XML files, compute intrinsics, and export results."
     )

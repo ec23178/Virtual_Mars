@@ -1,66 +1,6 @@
-# run_colmap.py  (UPDATED -- cross-platform: works on Windows and JupyterHub/Linux)
-#
+# run_colmap.py
 # Runs a full COLMAP sparse reconstruction pipeline using the intrinsics
 # previously exported by main.py (compute_intrinsics + export_intrinsics).
-#
-# -----------------------------------------------------------------------
-# Platform detection
-# -----------------------------------------------------------------------
-# On Windows  the script calls the COLMAP.bat launcher.
-# On Linux    the script calls the 'colmap' binary directly (same arguments).
-# You can override auto-detection with --colmap-exe.
-#
-# Windows default exe: C:\Users\munee\Desktop\FINAL YEAR PROJECT\colmap-x64-windows-nocuda\COLMAP.bat
-# Linux  default exe: colmap   (must be on PATH, see JupyterHub setup in PIPELINE_COMMANDS.md)
-#
-# -----------------------------------------------------------------------
-# Folder layout expected before running
-# -----------------------------------------------------------------------
-#   <dataset-dir>/
-#     images/          <- demosaiced PNG images selected for COLMAP
-#     sparse/          <- created automatically if missing
-#     database.db      <- created by COLMAP feature_extractor (first run)
-#
-#   <intrinsics-dir>/
-#     cameras.txt          <- COLMAP camera entries (one per unique size/lens group)
-#     image_camera_map.txt <- maps each PNG filename to its camera ID
-#
-# Both folders are produced by running the pipeline in this order:
-#   1. filter_xml_metadata.py   -- filters raw data
-#   2. vic2png                  -- converts IMG -> PNG
-#   3. demosaic_batch.py        -- demosaics PNG Bayer -> RGB PNG
-#   4. select_colmap_images.py  -- thins sequences, copies to images/
-#   5. main.py (intrinsics)     -- parses CAHVOR, exports cameras.txt etc.
-#   6. THIS SCRIPT              -- runs feature extraction, matching, mapper
-#
-# -----------------------------------------------------------------------
-# Usage
-# -----------------------------------------------------------------------
-#
-# Windows (auto-detect):
-#   python run_colmap.py \
-#       --dataset-dir  COLMAP/colmap_bilinear \
-#       --intrinsics-dir COLMAP/intrinsics_bilinear \
-#       --use-gpu --reset-db
-#
-# JupyterHub / Linux (auto-detect, colmap must be on PATH):
-#   python run_colmap.py \
-#       --dataset-dir  ~/COLMAP/colmap_bilinear \
-#       --intrinsics-dir ~/COLMAP/intrinsics_bilinear \
-#       --use-gpu --reset-db
-#
-# Override executable (if colmap is not on PATH):
-#   python run_colmap.py \
-#       --dataset-dir  ~/COLMAP/colmap_bilinear \
-#       --intrinsics-dir ~/COLMAP/intrinsics_bilinear \
-#       --colmap-exe /usr/local/bin/colmap \
-#       --use-gpu --reset-db
-#
-# Sequential matcher (faster, only valid for ordered panoramic sweeps):
-#   python run_colmap.py \
-#       --dataset-dir  COLMAP/colmap_bilinear \
-#       --intrinsics-dir COLMAP/intrinsics_bilinear \
-#       --matcher sequential --use-gpu --reset-db
 
 import argparse
 import platform
@@ -69,11 +9,9 @@ import sys
 from pathlib import Path
 
 
-# -----------------------------------------------------------------------
 # Platform-aware default executable
-# -----------------------------------------------------------------------
 def default_colmap_exe():
-    """Return the platform-appropriate default COLMAP executable path."""
+    # Return the platform-appropriate default COLMAP executable path.
     if platform.system() == "Windows":
         return (
             r"C:\Users\munee\Desktop\FINAL_YEAR_PROJECT"
@@ -81,17 +19,13 @@ def default_colmap_exe():
         )
     else:
         # Linux / macOS: assume 'colmap' is on the system PATH.
-        # On JupyterHub install with: conda install -c conda-forge colmap
-        # or: pip install pycolmap  (Python bindings, different interface)
+        # This is a backup in case we use JupyterHub for COLMAP (Unlikely).
         return "colmap"
 
 
-# -----------------------------------------------------------------------
 # Read cameras.txt
-# -----------------------------------------------------------------------
-
 def parse_cameras_txt(cameras_path):
-    """Read cameras.txt -> {camera_id: {model, width, height, params}}."""
+    # Read cameras.txt -> {camera_id: {model, width, height, params}}.
     cameras = {}
     with open(cameras_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -118,7 +52,7 @@ def parse_cameras_txt(cameras_path):
 # -----------------------------------------------------------------------
 
 def parse_image_camera_map(map_path):
-    """Read image_camera_map.txt -> {camera_id: [image_name, ...]}."""
+    # Read image_camera_map.txt -> {camera_id: [image_name, ...]}.
     grouped      = {}
     header_done  = False
     with open(map_path, "r", encoding="utf-8") as f:
@@ -140,12 +74,9 @@ def parse_image_camera_map(map_path):
     return grouped
 
 
-# -----------------------------------------------------------------------
 # Write a per-camera image list file
-# -----------------------------------------------------------------------
-
 def write_image_list(dataset_dir, camera_id, image_names):
-    """Write camera_<id>_images.txt for one camera group."""
+    # Write camera_<id>_images.txt for one camera group.
     list_path = Path(dataset_dir) / f"camera_{camera_id}_images.txt"
     with open(list_path, "w", encoding="utf-8") as f:
         for name in image_names:
@@ -153,21 +84,16 @@ def write_image_list(dataset_dir, camera_id, image_names):
     return str(list_path)
 
 
-# -----------------------------------------------------------------------
 # Subprocess runner
-# -----------------------------------------------------------------------
-
 def run_command(command):
-    """Run a shell command and raise on failure."""
+    # Run a shell command and raise on failure.
     # Pretty-print the command for logging.
     display = " ".join(
         f'"{p}"' if (" " in str(p) or "\\" in str(p)) else str(p)
         for p in command
     )
     print(f"\nRunning:\n  {display}\n")
-    # On Windows, .bat files must be run through cmd.exe — subprocess cannot
-    # execute them directly via CreateProcess. Prepend ["cmd", "/c"] so the
-    # shell interprets the batch file correctly.
+
     actual_command = list(command)
     if platform.system() == "Windows" and str(actual_command[0]).lower().endswith(".bat"):
         actual_command = ["cmd", "/c"] + actual_command
@@ -178,14 +104,11 @@ def run_command(command):
         sys.exit(result.returncode)
 
 
-# -----------------------------------------------------------------------
 # COLMAP pipeline steps
-# -----------------------------------------------------------------------
-
 def run_feature_extraction(exe, database_path, image_path,
                             image_list_path, camera_model,
                             camera_params, use_gpu):
-    """Run COLMAP feature_extractor for one camera group."""
+    # Run COLMAP feature_extractor for one camera group.
     command = [
         exe,
         "feature_extractor",
@@ -201,7 +124,7 @@ def run_feature_extraction(exe, database_path, image_path,
 
 
 def run_matching(exe, database_path, matcher_type, use_gpu):
-    """Run the chosen COLMAP matcher across all images in the database."""
+    # Run the chosen COLMAP matcher across all images in the database.
     command = [
         exe,
         f"{matcher_type}_matcher",
@@ -212,7 +135,7 @@ def run_matching(exe, database_path, matcher_type, use_gpu):
 
 
 def run_mapper(exe, database_path, image_path, sparse_path):
-    """Run COLMAP sparse reconstruction with intrinsics held fixed."""
+    # Run COLMAP sparse reconstruction with intrinsics held fixed.
     command = [
         exe,
         "mapper",
@@ -227,7 +150,7 @@ def run_mapper(exe, database_path, image_path, sparse_path):
 
 
 def run_model_converter(exe, sparse_path, output_path, output_type="TXT"):
-    """Convert a COLMAP binary sparse model to TXT format (for debugging/inspection)."""
+    # Convert a COLMAP binary sparse model to TXT format (for debugging/inspection).
     # Find the first numbered sub-model folder (e.g. sparse/0/).
     model_dirs = sorted(
         [d for d in Path(sparse_path).iterdir() if d.is_dir() and d.name.isdigit()],
@@ -248,10 +171,7 @@ def run_model_converter(exe, sparse_path, output_path, output_type="TXT"):
     run_command(command)
 
 
-# -----------------------------------------------------------------------
 # Main
-# -----------------------------------------------------------------------
-
 def main():
     parser = argparse.ArgumentParser(
         description=(
